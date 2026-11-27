@@ -1,0 +1,8 @@
+__pycache__/
+_render/
+*.mp4
+*.log
+*.err
+_smoke*
+_card_check.py
+_probe_*
