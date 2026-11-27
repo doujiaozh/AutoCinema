@@ -1,8 +1,12 @@
 __pycache__/
 _render/
+_epic/
 *.mp4
 *.log
 *.err
 _smoke*
 _card_check.py
-_probe_*
+_render_probe.py
+_audio_*.py
+_enc_check.py
+_manifest.json

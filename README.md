@@ -1,35 +1,42 @@
 # AutoCinema
 
-Procedural sports-film engine. A single Python program turns a folder of raw photos and clips into a 90 second, 2.35:1, beat-locked cinematic short with typography, colour grading, film grain, speed ramping and a fully synthesised score.
+Procedural film engines. Each one turns a folder of raw photos and clips into a finished 90 second cinematic short, using nothing but Python, NumPy, OpenCV and moviepy.
 
-## Target film
+| Engine | Output | Focus |
+| --- | --- | --- |
+| `auto_cinema.py` | `Class20_Sports_Cinema.mp4` | Beat-locked montage, typography, teal and orange grade |
+| `epic_cinema.py` | `Epic_Cinematic_Master.mp4` | Glitch art, pseudo 3D parallax, kinetic type, epic score |
+
+## Target film (epic engine)
 
 | Field | Value |
 | --- | --- |
-| Title | Class20_Sports_Cinema |
 | Subject | Haikou Jinpan Experimental School sports day, class 7(20) |
-| Duration | 90.00 s at 30 fps, 120 BPM |
-| Format | 1920x1080, H.264 12000k, AAC 256k |
-| Aspect | 2.35:1 with permanent 132 px black bars |
+| Duration | 90.00 s at 30 fps, 120 BPM, 180 beats |
+| Format | 1920x1080, H.264 12000k, AAC 256k, 2.35:1 letterbox |
 
-## Narrative
+## Structure
 
-| Movement | Window | Beats | Function |
+| Act | Window | Beats | Function |
 | --- | --- | --- | --- |
-| I DAWN | 0.0 - 18.0 s | 36 | Hold, gather, low pulse, rising tension |
-| II SUN | 18.0 - 42.0 s | 48 | Starting gun, first sprint montage |
-| III LIMIT | 42.0 - 66.0 s | 48 | Drop, extreme speed ramping, compression |
-| IV GLORY | 66.0 - 90.0 s | 48 | Impacts, anthem, class reveal, resolve |
+| Prologue | 0.00 - 3.00 s | 6 | Absolute silence, sub heartbeat, title rises out of black |
+| I Dawn | 3.00 - 18.00 s | 30 | Drop, first parallax reveal, slow build |
+| II Sun | 18.00 - 42.00 s | 48 | Sprint montage, glitch accents, starting gun |
+| III Limit | 42.00 - 66.00 s | 48 | Impact, extreme speed ramps, heavy glitch, text masks |
+| IV Glory | 66.00 - 90.00 s | 48 | Choir, class reveal, resolve |
 
-## Pipeline
+## Visual systems
 
-1. Material scan. Perceptual hash, sharpness, contrast, brightness and warmth for every still. Motion profile for every clip.
-2. Curation. Complete linkage clustering on Hamming distance, quality ranking, perceptual diversity floor, then movement assignment.
-3. Beat map. Every shot length is an integer number of beats, so all 55 cuts land exactly on the 120 BPM grid.
-4. Frame engine. Cover crop to 2.35:1, eight motion primitives, Linear speed ramp for motion clips, teal shadow and warm highlight LUT, saturation lift, eight film grain plates, radial vignette, white flash and punch transitions.
-5. Typography. Bold sans cards rendered with PIL, black stroke, breathing scale, per-card alpha envelope, composited before the letterbox.
-6. Score. NumPy additive synthesis: heartbeat pulse, four on the floor kick, snare, sixteenth hats, harmonic bass, plucked arpeggio, detuned pad, starting gun, riser, drop, impact. All events quantised to 0.125 s.
-7. Verification. Decode sweep, letterbox measurement, shadow and highlight sampling, grain gradient, beat grid alignment, kick onset detection and cut to kick correlation.
+- Glitch: RGB plane separation, band displacement, scanline noise, gated to the beat envelope.
+- Lens warp: four precomputed radial remap banks, fired as impacts.
+- Pseudo 3D: each hero still is split into subject and backdrop by a saliency and center prior, then the two planes travel at different speeds.
+- Kinetic type: perspective keystone cards that slam out of depth, with black stroke and additive bloom.
+- Text masking: giant glyphs cut the picture during four transitions.
+- Grade, bloom, film grain, vignette, light leaks and directional motion blur run on every frame.
+
+## Audio systems
+
+NumPy additive synthesis at 120 BPM: heartbeat, kick, snare, hats, harmonic bass, plucked arpeggio, detuned pad, formant choir, brown noise wind, risers, impacts, a three seconde silence gate and a drop at 3.00 s. Every event is quantised to 0.125 s so all 54 cuts land on a kick.
 
 ## Requirements
 
@@ -42,10 +49,11 @@ Procedural sports-film engine. A single Python program turns a folder of raw pho
 
 ```
 python auto_cinema.py
+python epic_cinema.py
 ```
 
-Set `AUTOCINEMA_LIMIT` to a number of seconds to render only the head of the film for a fast check.
+Set `AUTOCINEMA_LIMIT` or `EPIC_LIMIT` to a number of seconds to render only the head of a film for a fast check.
 
-## Output contract
+## Verification
 
-The run prints a stage log, a per-check verdict line and a final `RESULT: PASS` or `RESULT: FAIL`. The master is written to `D:\Code\Video\Class20_Sports_Cinema.mp4`.
+Both engines finish with a check matrix covering duration, resolution, streams, decode sweep, letterbox geometry, grade sign, effect unit tests, beat grid alignment, cut to kick correlation and audio headroom, then print `RESULT: PASS` or `RESULT: FAIL`.
