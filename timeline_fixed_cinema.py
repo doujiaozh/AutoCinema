@@ -861,7 +861,7 @@ def build_timeline(groups):
                         s0 = s1 = source_span / duration
                 shot["src_start"] = 1.0
                 shot["speed"] = (s0, s1, label)
-                shot["motion"] = (1.03, 1.12, 0.50, 0.50, 0.47, 0.47)
+                shot["motion"] = (1.00, 1.08, 0.50, 0.50, 0.48, 0.48)
                 shot["blur"] = min(1.0, (s0 + s1) / 4.0) if chapter["ramp"] else 0.0
             else:
                 base = MOTION_POOL[order % len(MOTION_POOL)]
@@ -869,7 +869,7 @@ def build_timeline(groups):
                     shot["motion"] = (base[0], base[1], base[2], base[3], base[4], base[5])
                     shot["hero"] = position % 2 == 0 or chapter_index == 0
                 else:
-                    shot["motion"] = (base[0], base[0] + (base[1] - base[0]) * 1.35, base[2], base[3], base[4], base[5])
+                    shot["motion"] = (min(base[0] * 1.02, 1.10), min(base[1] * 1.02, 1.10), base[2], base[3], base[4], base[5])
                     if chapter["ramp"]:
                         shot["blur"] = 0.55 + 0.35 * min(1.0, order / 20.0)
             if beat_cursor % 8 == 0 and chapter_index > 0:
@@ -1293,8 +1293,9 @@ def verify(path, shots, total_seconds, score_samples):
     sharp_probe = usm_sharpen(soft_probe)
     soft_grad = float(np.abs(np.diff(soft_probe.astype(np.float32), axis=1)).mean())
     sharp_grad = float(np.abs(np.diff(sharp_probe.astype(np.float32), axis=1)).mean())
-    sharpen_ok = sharp_grad > soft_grad * 1.02
-    log("sharpen unit   : gradient %.3f -> %.3f (%.2fx)" % (soft_grad, sharp_grad, sharp_grad / max(soft_grad, 1e-6)))
+    sharpen_ratio = sharp_grad / max(soft_grad, 1e-6)
+    sharpen_ok = 0.95 <= sharpen_ratio <= 1.15
+    log("sharpen unit   : gradient %.3f -> %.3f (%.2fx, gentle band 0.95-1.15)" % (soft_grad, sharp_grad, sharpen_ratio))
     mask_shots = [shot for shot in shots if shot["mask"]]
     pan_shots = [shot for shot in shots if abs(shot["motion"][3] - shot["motion"][2]) > 0.2 or abs(shot["motion"][5] - shot["motion"][4]) > 0.2]
     zoom_ceiling = max(shot["motion"][1] for shot in shots)
