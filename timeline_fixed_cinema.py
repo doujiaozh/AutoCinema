@@ -733,39 +733,52 @@ def finish_pass(frame, index, grain_scale):
     return cv2.multiply(frame, VIGNETTE, scale=1.0 / 255.0)
 
 
-def pan_window(source_w, source_h, zoom, pan_x, pan_y):
-    base = max(WIDTH / float(source_w), CONTENT_H / float(source_h)) * zoom
-    window_w = WIDTH / base
-    window_h = CONTENT_H / base
-    if window_w > source_w:
-        window_w = float(source_w)
-        window_h = window_w * CONTENT_H / float(WIDTH)
-    if window_h > source_h:
-        window_h = float(source_h)
-        window_w = window_h * WIDTH / float(CONTENT_H)
-    max_x = max(0.0, source_w - window_w)
-    max_y = max(0.0, source_h - window_h)
-    left = min(max(pan_x * max_x, 0.0), max_x)
-    top = min(max(pan_y * max_y, 0.0), max_y)
-    return left, top, window_w, window_h
+def compose_geometry(source_w, source_h, zoom, pan_x, pan_y):
+    native = min(1.0, min(WIDTH / float(source_w), CONTENT_H / float(source_h)))
+    ceiling = min(WIDTH / float(source_w), CONTENT_H / float(source_h))
+    scale = min(native * min(max(zoom, 1.0), 1.10), ceiling)
+    panel_w = max(2, int(round(source_w * scale)))
+    panel_h = max(2, int(round(source_h * scale)))
+    slack_x = max(0, WIDTH - panel_w)
+    slack_y = max(0, CONTENT_H - panel_h)
+    drift_x = (pan_x - 0.5) * slack_x * 0.72
+    drift_y = (pan_y - 0.5) * slack_y * 0.72
+    left = int(round((WIDTH - panel_w) / 2.0 + drift_x))
+    top = int(round((CONTENT_H - panel_h) / 2.0 + drift_y))
+    left = min(max(left, 0), slack_x)
+    top = min(max(top, 0), slack_y)
+    return scale, panel_w, panel_h, left, top
 
 
-def render_pan_scan(source, zoom, pan_x, pan_y, sharpen=True):
+def render_full_frame(source, zoom, pan_x, pan_y, sharpen=True):
     height, width = source.shape[:2]
-    left, top, window_w, window_h = pan_window(width, height, zoom, pan_x, pan_y)
-    x0 = int(round(left))
-    y0 = int(round(top))
-    x1 = min(width, max(x0 + 2, int(round(left + window_w))))
-    y1 = min(height, max(y0 + 2, int(round(top + window_h))))
-    patch = source[y0:y1, x0:x1]
-    interpolation = cv2.INTER_AREA if patch.shape[1] >= WIDTH else cv2.INTER_CUBIC
-    frame = cv2.resize(patch, (WIDTH, CONTENT_H), interpolation=interpolation)
+    scale, panel_w, panel_h, left, top = compose_geometry(width, height, zoom, pan_x, pan_y)
+    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+    panel = cv2.resize(source, (panel_w, panel_h), interpolation=interpolation)
+    backdrop = blur_backdrop(source)
+    canvas = backdrop.copy()
+    canvas[top : top + panel_h, left : left + panel_w] = panel
     if sharpen:
-        frame = usm_sharpen(frame)
-    return frame
+        canvas = usm_sharpen(canvas)
+    return canvas
 
 
-def usm_sharpen(frame, radius=1.6, amount=0.85, threshold=2.0):
+def blur_backdrop(source):
+    height, width = source.shape[:2]
+    cover = max(WIDTH / float(width), CONTENT_H / float(height))
+    target_w = max(WIDTH, int(round(width * cover)))
+    target_h = max(CONTENT_H, int(round(height * cover)))
+    filled = cv2.resize(source, (target_w, target_h), interpolation=cv2.INTER_AREA)
+    x0 = (target_w - WIDTH) // 2
+    y0 = (target_h - CONTENT_H) // 2
+    filled = filled[y0 : y0 + CONTENT_H, x0 : x0 + WIDTH]
+    small = cv2.resize(filled, (WIDTH // 6, CONTENT_H // 6), interpolation=cv2.INTER_AREA)
+    small = cv2.GaussianBlur(small, (0, 0), 9.0)
+    small = cv2.resize(small, (WIDTH, CONTENT_H), interpolation=cv2.INTER_LINEAR)
+    return cv2.convertScaleAbs(small, alpha=0.46, beta=-10)
+
+
+def usm_sharpen(frame, radius=0.5, amount=0.20):
     blurred = cv2.GaussianBlur(frame, (0, 0), radius)
     return cv2.addWeighted(frame, 1.0 + amount, blurred, -amount, 0)
 
@@ -774,13 +787,13 @@ def camera_shake(frame, amplitude, phase, index):
     if amplitude <= 0.05:
         return frame
     rng = np.random.RandomState((int(phase * 1000) * 37 + index * 131) % (2 ** 31))
-    shift_x = int(round(rng.uniform(-1.0, 1.0) * amplitude * 18.0))
-    shift_y = int(round(rng.uniform(-1.0, 1.0) * amplitude * 13.0))
-    angle = float(rng.uniform(-1.0, 1.0) * amplitude * 1.05)
-    matrix = cv2.getRotationMatrix2D((WIDTH / 2.0, CONTENT_H / 2.0), angle, 1.0 + amplitude * 0.012)
+    shift_x = int(round(rng.uniform(-1.0, 1.0) * amplitude * 4.0))
+    shift_y = int(round(rng.uniform(-1.0, 1.0) * amplitude * 3.0))
+    angle = float(rng.uniform(-1.0, 1.0) * amplitude * 0.28)
+    matrix = cv2.getRotationMatrix2D((WIDTH / 2.0, CONTENT_H / 2.0), angle, 1.0)
     matrix[0, 2] += shift_x
     matrix[1, 2] += shift_y
-    return cv2.warpAffine(frame, matrix, (WIDTH, CONTENT_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+    return cv2.warpAffine(frame, matrix, (WIDTH, CONTENT_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
 
 
 IMAGE_CACHE = {}
@@ -821,14 +834,14 @@ def video_frame(path, moment):
 
 
 MOTION_POOL = [
-    (1.00, 1.34, 0.02, 0.98, 0.50, 0.50),
-    (1.00, 1.34, 0.98, 0.02, 0.50, 0.50),
-    (1.00, 1.30, 0.50, 0.50, 0.02, 0.98),
-    (1.00, 1.30, 0.50, 0.50, 0.98, 0.02),
-    (1.02, 1.42, 0.06, 0.94, 0.10, 0.90),
-    (1.02, 1.42, 0.94, 0.06, 0.90, 0.10),
-    (1.06, 1.52, 0.50, 0.50, 0.50, 0.50),
-    (1.00, 1.26, 0.84, 0.16, 0.50, 0.50),
+    (1.00, 1.08, 0.30, 0.70, 0.50, 0.50),
+    (1.00, 1.08, 0.70, 0.30, 0.50, 0.50),
+    (1.00, 1.07, 0.50, 0.50, 0.30, 0.70),
+    (1.00, 1.07, 0.50, 0.50, 0.70, 0.30),
+    (1.02, 1.10, 0.34, 0.66, 0.38, 0.62),
+    (1.02, 1.10, 0.66, 0.34, 0.62, 0.38),
+    (1.04, 1.10, 0.50, 0.50, 0.50, 0.50),
+    (1.00, 1.06, 0.62, 0.38, 0.50, 0.50),
 ]
 
 
@@ -949,6 +962,7 @@ def render_shot(shot, local):
     motion = shot["motion"]
     s0, s1 = motion[0], motion[1]
     zoom = s0 + (s1 - s0) * progress
+    zoom = min(max(zoom, 1.0), 1.10)
     pan_x = motion[2] + (motion[3] - motion[2]) * progress
     pan_y = motion[4] + (motion[5] - motion[4]) * progress
     if shot["kind"] == "image":
@@ -957,7 +971,7 @@ def render_shot(shot, local):
             raise RuntimeError("unreadable image")
     else:
         source = video_frame(shot["path"], shot["src_start"] + speed_offset(shot, local))
-    return render_pan_scan(source, zoom, pan_x, pan_y)
+    return render_full_frame(source, zoom, pan_x, pan_y)
 
 
 def build_clip(shots, total_seconds):
@@ -987,7 +1001,7 @@ def build_clip(shots, total_seconds):
             frame = glitch_pass(frame, level * envelope, local, shot["index"])
         frame = leak_pass(frame, moment, shot["leak"])
         frame = finish_pass(frame, index, 1.0 if shot["kind"] == "video" else 0.8)
-        shake = shot["shake"] * math.exp(-local * 6.5)
+        shake = shot["shake"] * 0.5 * math.exp(-local * 6.5)
         if shake > 0.02:
             frame = camera_shake(frame, shake, moment, index)
         if moment < 2.86:
