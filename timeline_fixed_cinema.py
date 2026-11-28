@@ -317,22 +317,20 @@ def pick_sequence(group, count):
     return [group[min(len(group) - 1, int(round(index * step)))] for index in range(count)]
 def build_lut():
     x = np.arange(256, dtype=np.float64) / 255.0
-    y = 0.5 + (x - 0.5) * 1.62
+    y = 0.5 + (x - 0.5) * 1.38
     y = np.clip(y, 0.0, 1.0)
-    y = np.power(y, 1.18)
-    y = y + 0.012 * (1.0 - y) * (1.0 - y)
-    knee = 0.72
+    y = y + 0.008 * (1.0 - y) * (1.0 - y)
+    knee = 0.80
     over = np.maximum(y - knee, 0.0)
-    y = np.where(y > knee, knee + over / (1.0 + 1.35 * over), y)
+    y = np.where(y > knee, knee + over / (1.0 + 2.2 * over), y)
     base = np.clip(y, 0.0, 1.0) * 255.0
     shade = (1.0 - x) ** 2
     light = x ** 2
     table = np.zeros((256, 1, 3), dtype=np.uint8)
-    table[:, 0, 0] = np.clip(base - 22.0 * shade + 30.0 * light - 6.0, 0, 255)
-    table[:, 0, 1] = np.clip(base - 4.0 * shade + 8.0 * light - 4.0, 0, 255)
-    table[:, 0, 2] = np.clip(base + 26.0 * shade - 12.0 * light + 6.0, 0, 255)
+    table[:, 0, 0] = np.clip(base - 3.0 * shade + 2.0 * light, 0, 255)
+    table[:, 0, 1] = np.clip(base - 1.0 * shade + 1.0 * light, 0, 255)
+    table[:, 0, 2] = np.clip(base + 3.0 * shade - 2.0 * light, 0, 255)
     return table
-
 
 def build_vignette():
     yy, xx = np.mgrid[0:CONTENT_H, 0:WIDTH]
@@ -605,7 +603,7 @@ def warp_card(card, progress, mode, pulse=0.0):
     return left, top, warped_rgb, warped_alpha
 
 
-def composite_text(frame, card, progress, pulse, alpha_scale, echo=0.0):
+def composite_text(frame, card, progress, pulse, alpha_scale):
     warped = warp_card(card, progress, card["mode"], pulse)
     if warped is None or alpha_scale <= 0.01:
         return frame
@@ -615,24 +613,16 @@ def composite_text(frame, card, progress, pulse, alpha_scale, echo=0.0):
     region = frame[top : top + height, left : left + width]
     if region.shape[:2] != mask.shape:
         return frame
-    if echo > 0.02:
-        trail = max(2, int(round(echo * 26.0)))
-        red = cv2.multiply(warped_rgb, np.array([0.35, 0.35, 1.25], dtype=np.float32))
-        cyan = cv2.multiply(warped_rgb, np.array([1.25, 0.40, 0.35], dtype=np.float32))
-        red = np.roll(red, trail, axis=1)
-        cyan = np.roll(cyan, -trail, axis=1)
-        warped_rgb = np.clip(warped_rgb.astype(np.float32) * 0.55 + red * echo * 0.55 + cyan * echo * 0.55, 0, 255).astype(np.uint8)
     mask_u8 = (mask * 255.0).astype(np.uint8)
-    glow = cv2.GaussianBlur(warped_rgb, (0, 0), 6.0)
-    softened = cv2.GaussianBlur(mask_u8, (0, 0), 9.0).astype(np.float32) * (1.5 / 255.0)
-    soft_alpha = np.clip(softened, 0.0, 1.0)
-    glow_weight = (soft_alpha * card["glow"]).astype(np.float32)
-    glow_layer = (glow.astype(np.float32) * glow_weight[:, :, None]).astype(np.uint8)
     mask_rgb = cv2.cvtColor(mask_u8, cv2.COLOR_GRAY2RGB)
     inverse_rgb = cv2.bitwise_not(mask_rgb)
     kept = cv2.multiply(region, inverse_rgb, scale=1.0 / 255.0)
     laid = cv2.multiply(warped_rgb, mask_rgb, scale=1.0 / 255.0)
-    blended = cv2.add(cv2.add(kept, laid), glow_layer)
+    blended = cv2.add(kept, laid)
+    if card["glow"] > 0.01:
+        soft = cv2.GaussianBlur(mask_u8, (0, 0), 7.0).astype(np.float32) * (card["glow"] * 0.55 / 255.0)
+        shadow = (cv2.GaussianBlur(warped_rgb, (0, 0), 5.0).astype(np.float32) * soft[:, :, None]).astype(np.uint8)
+        blended = cv2.addWeighted(blended, 1.0, shadow, 0.35, 0)
     frame[top : top + height, left : left + width] = blended
     return frame
 
@@ -650,9 +640,8 @@ def overlay_cards(frame, moment):
             alpha = local / fade
         if span - local < fade:
             alpha = min(alpha, (span - local) / fade)
-        pulse = 0.5 + 0.5 * math.sin(2.0 * math.pi * (moment / BEAT))
-        echo = max(0.0, 1.0 - local / 0.28) if card["mode"] == "slam" else 0.0
-        frame = composite_text(frame, card, progress, pulse, alpha, echo)
+        pulse = 0.0
+        frame = composite_text(frame, card, progress, pulse, alpha)
     return frame
 
 
@@ -675,57 +664,35 @@ def bloom_pass(frame, strength):
     return cv2.addWeighted(frame, 1.0, glow, strength, 0)
 
 
-def motion_blur_pass(frame, amount):
-    if amount <= 0.05:
-        return frame
-    step = max(2, int(round(10 + 26 * amount)))
-    shifted = np.roll(frame, -step, axis=1)
-    shifted2 = np.roll(frame, -step * 2, axis=1)
-    blended = frame.astype(np.float32) * 0.55 + shifted.astype(np.float32) * 0.28 + shifted2.astype(np.float32) * 0.17
-    return blended.astype(np.uint8)
-
-
-def lens_warp(frame, strength):
-    if strength <= 0.02:
-        return frame
-    index = 0
-    if strength > 0.44:
-        index = 3
-    elif strength > 0.30:
-        index = 2
-    elif strength > 0.18:
-        index = 1
-    map_x, map_y = WARPS[index]
-    return cv2.remap(frame, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-
-
-def glitch_pass(frame, strength, local, seed):
-    if strength <= 0.02:
-        return frame
-    rng = np.random.RandomState(int(seed * 977 + local * 613) % (2 ** 31))
-    shift = int(3 + 14 * strength)
-    output = frame.copy()
-    output[:, :, 0] = np.roll(frame[:, :, 0], -shift, axis=1)
-    output[:, :, 2] = np.roll(frame[:, :, 2], shift, axis=1)
-    bands = int(2 + 6 * strength)
-    for band in range(bands):
-        height = int(rng.randint(8, 70))
-        top = int(rng.randint(0, max(1, CONTENT_H - height)))
-        offset = int(rng.randint(-int(40 + 120 * strength), int(40 + 120 * strength)))
-        output[top : top + height] = np.roll(output[top : top + height], offset, axis=1)
-    if strength > 0.45:
-        scan = (np.arange(CONTENT_H) % 3 == 0).astype(np.float32)[:, None, None]
-        noise = rng.normal(0, 26 * strength, (CONTENT_H, WIDTH, 1)).astype(np.float32)
-        output = np.clip(output.astype(np.float32) + scan * noise, 0, 255).astype(np.uint8)
-    return output
-
-
-def leak_pass(frame, moment, strength):
-    if strength <= 0.01:
-        return frame
-    index = int(moment * 0.7) % len(LEAKS)
-    level = min(range(len(LEAK_LEVELS)), key=lambda step: abs(LEAK_LEVELS[step] - strength))
-    return cv2.add(frame, LEAK_PLATES[level][index])
+def seam_shadow(canvas, left, top, panel_w, panel_h, width_px=46, depth=0.62):
+    height, width = canvas.shape[:2]
+    weight = np.ones((height, width), dtype=np.float32)
+    left_gap = max(0, left)
+    right_gap = max(0, width - (left + panel_w))
+    if left_gap > 0:
+        span = min(width_px, left_gap)
+        ramp = np.linspace(0.0, 1.0, span) ** 1.6
+        weight[top : top + panel_h, left - span : left] = np.minimum(weight[top : top + panel_h, left - span : left], ramp[None, :])
+    if right_gap > 0:
+        span = min(width_px, right_gap)
+        ramp = (np.linspace(0.0, 1.0, span) ** 1.6)[::-1]
+        weight[top : top + panel_h, left + panel_w : left + panel_w + span] = np.minimum(
+            weight[top : top + panel_h, left + panel_w : left + panel_w + span], ramp[None, :]
+        )
+    top_gap = max(0, top)
+    bottom_gap = max(0, height - (top + panel_h))
+    if top_gap > 0:
+        span = min(width_px, top_gap)
+        ramp = np.linspace(0.0, 1.0, span) ** 1.6
+        weight[top - span : top, left : left + panel_w] = np.minimum(weight[top - span : top, left : left + panel_w], ramp[:, None])
+    if bottom_gap > 0:
+        span = min(width_px, bottom_gap)
+        ramp = (np.linspace(0.0, 1.0, span) ** 1.6)[::-1]
+        weight[top + panel_h : top + panel_h + span, left : left + panel_w] = np.minimum(
+            weight[top + panel_h : top + panel_h + span, left : left + panel_w], ramp[:, None]
+        )
+    factor = (1.0 - depth * (1.0 - weight))[:, :, None]
+    return np.clip(canvas.astype(np.float32) * factor, 0, 255).astype(np.uint8)
 
 
 def finish_pass(frame, index, grain_scale):
@@ -750,7 +717,7 @@ def compose_geometry(source_w, source_h, zoom, pan_x, pan_y):
     return scale, panel_w, panel_h, left, top
 
 
-def render_full_frame(source, zoom, pan_x, pan_y, sharpen=True):
+def render_full_frame(source, zoom, pan_x, pan_y, sharpen=True, fade=True):
     height, width = source.shape[:2]
     scale, panel_w, panel_h, left, top = compose_geometry(width, height, zoom, pan_x, pan_y)
     interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
@@ -758,6 +725,8 @@ def render_full_frame(source, zoom, pan_x, pan_y, sharpen=True):
     backdrop = blur_backdrop(source)
     canvas = backdrop.copy()
     canvas[top : top + panel_h, left : left + panel_w] = panel
+    if fade:
+        canvas = seam_shadow(canvas, left, top, panel_w, panel_h)
     if sharpen:
         canvas = usm_sharpen(canvas)
     return canvas
@@ -775,25 +744,12 @@ def blur_backdrop(source):
     small = cv2.resize(filled, (WIDTH // 6, CONTENT_H // 6), interpolation=cv2.INTER_AREA)
     small = cv2.GaussianBlur(small, (0, 0), 9.0)
     small = cv2.resize(small, (WIDTH, CONTENT_H), interpolation=cv2.INTER_LINEAR)
-    return cv2.convertScaleAbs(small, alpha=0.46, beta=-10)
+    return cv2.convertScaleAbs(small, alpha=0.35, beta=-8)
 
 
 def usm_sharpen(frame, radius=0.5, amount=0.20):
     blurred = cv2.GaussianBlur(frame, (0, 0), radius)
     return cv2.addWeighted(frame, 1.0 + amount, blurred, -amount, 0)
-
-
-def camera_shake(frame, amplitude, phase, index):
-    if amplitude <= 0.05:
-        return frame
-    rng = np.random.RandomState((int(phase * 1000) * 37 + index * 131) % (2 ** 31))
-    shift_x = int(round(rng.uniform(-1.0, 1.0) * amplitude * 4.0))
-    shift_y = int(round(rng.uniform(-1.0, 1.0) * amplitude * 3.0))
-    angle = float(rng.uniform(-1.0, 1.0) * amplitude * 0.28)
-    matrix = cv2.getRotationMatrix2D((WIDTH / 2.0, CONTENT_H / 2.0), angle, 1.0)
-    matrix[0, 2] += shift_x
-    matrix[1, 2] += shift_y
-    return cv2.warpAffine(frame, matrix, (WIDTH, CONTENT_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
 
 
 IMAGE_CACHE = {}
@@ -988,44 +944,28 @@ def build_clip(shots, total_seconds):
         index, local = locate(moment)
         shot = shots[index]
         frame = render_shot(shot, local)
-        if shot["warp"] > 0.02:
-            envelope = max(0.0, 1.0 - local / 0.42)
-            frame = lens_warp(frame, shot["warp"] * envelope)
         frame = grade_frame(frame)
-        frame = bloom_pass(frame, shot["bloom"])
-        if shot["blur"] > 0.05:
-            frame = motion_blur_pass(frame, shot["blur"])
-        if shot["glitch"] > 0.02:
-            envelope = 1.0 if local < 0.30 else max(0.0, 1.0 - (local - 0.30) / 0.35)
-            level = shot["glitch"] * (0.55 + 0.45 * math.sin(2.0 * math.pi * moment / BEAT) ** 2)
-            frame = glitch_pass(frame, level * envelope, local, shot["index"])
-        frame = leak_pass(frame, moment, shot["leak"])
-        frame = finish_pass(frame, index, 1.0 if shot["kind"] == "video" else 0.8)
-        shake = shot["shake"] * 0.5 * math.exp(-local * 6.5)
-        if shake > 0.02:
-            frame = camera_shake(frame, shake, moment, index)
+        frame = finish_pass(frame, index, 1.0)
         if moment < 2.86:
             dim = 0.10 + 0.22 * (moment / 2.86)
             frame = cv2.convertScaleAbs(frame, alpha=dim, beta=0)
         elif moment < 3.30:
             rise = (moment - 2.86) / 0.44
             frame = cv2.addWeighted(frame, min(1.0, 0.32 + rise), WHITE, max(0.0, 0.68 * (1.0 - rise)), 0)
-        if shot["transition"] == "overexpose" and local < 0.20:
-            weight = 0.92 * (1.0 - local / 0.20)
+        if shot["transition"] == "overexpose" and local < 0.16:
+            weight = 0.55 * (1.0 - local / 0.16)
             frame = cv2.addWeighted(frame, 1.0 - weight, WHITE, weight, 0)
-        if shot["transition"] == "blink" and local < 0.13:
-            gain = local / 0.13
-            frame = cv2.convertScaleAbs(frame, alpha=gain, beta=0)
         if shot["mask"]:
             card = MASK_BY_KEY.get(shot["mask"])
-            if card is not None and local < 0.34:
-                reveal = ease(min(1.0, local / 0.30))
+            if card is not None and local < 0.28:
+                reveal = ease(min(1.0, local / 0.26))
                 mask_rgb, mask_alpha = card["rgb"], card["alpha"]
-                target_w = int(WIDTH * (0.55 + 0.55 * reveal))
+                target_w = int(WIDTH * (0.60 + 0.40 * reveal))
                 target_h = int(target_w * mask_alpha.shape[0] / float(mask_alpha.shape[1]))
                 resized_alpha = cv2.resize(mask_alpha, (target_w, target_h), interpolation=cv2.INTER_AREA)
                 resized_rgb = cv2.resize(mask_rgb, (target_w, target_h), interpolation=cv2.INTER_AREA)
                 canvas_mask = np.zeros((CONTENT_H, WIDTH), dtype=np.float32)
+                canvas_rgb = np.zeros((CONTENT_H, WIDTH, 3), dtype=np.uint8)
                 left = (WIDTH - target_w) // 2
                 top = (CONTENT_H - target_h) // 2
                 x0 = max(0, left)
@@ -1034,12 +974,9 @@ def build_clip(shots, total_seconds):
                 y1 = min(CONTENT_H, top + target_h)
                 if x1 > x0 and y1 > y0:
                     canvas_mask[y0:y1, x0:x1] = resized_alpha[y0 - top : y0 - top + (y1 - y0), x0 - left : x0 - left + (x1 - x0)]
-                    canvas_rgb = np.zeros((CONTENT_H, WIDTH, 3), dtype=np.uint8)
                     canvas_rgb[y0:y1, x0:x1] = resized_rgb[y0 - top : y0 - top + (y1 - y0), x0 - left : x0 - left + (x1 - x0)]
-                else:
-                    canvas_rgb = np.zeros((CONTENT_H, WIDTH, 3), dtype=np.uint8)
-                mask_strength = canvas_mask[:, :, None] * (1.0 - reveal)
-                frame = np.clip(frame.astype(np.float32) * (1.0 - mask_strength * 0.85) + canvas_rgb.astype(np.float32) * mask_strength * 0.85, 0, 255).astype(np.uint8)
+                strength = canvas_mask[:, :, None] * (1.0 - reveal) * 0.55
+                frame = np.clip(frame.astype(np.float32) * (1.0 - strength) + canvas_rgb.astype(np.float32) * strength, 0, 255).astype(np.uint8)
         frame = overlay_cards(frame, moment)
         tail = total_seconds - moment
         if tail < 1.8:
@@ -1297,24 +1234,6 @@ def channel_offset(band, maximum=36):
     return best_offset
 
 
-def fx_unit_checks():
-    base = np.full((CONTENT_H, WIDTH, 3), 18, np.uint8)
-    cv2.circle(base, (int(WIDTH * 0.30), int(CONTENT_H * 0.35)), 40, (255, 255, 255), -1)
-    cv2.rectangle(base, (int(WIDTH * 0.62), int(CONTENT_H * 0.52)), (int(WIDTH * 0.73), int(CONTENT_H * 0.76)), (235, 235, 235), -1)
-    gray0 = cv2.cvtColor(base, cv2.COLOR_RGB2GRAY).astype(np.float32)
-    halo_before = float(((gray0 > 26) & (gray0 < 200)).mean())
-    bloomed = bloom_pass(base, 0.6)
-    gray1 = cv2.cvtColor(bloomed, cv2.COLOR_RGB2GRAY).astype(np.float32)
-    halo_after = float(((gray1 > 26) & (gray1 < 200)).mean())
-    glitched = glitch_pass(base, 0.9, 0.1, 3)
-    split = channel_offset(glitched)
-    warped = lens_warp(base, 0.5)
-    warp_delta = float(np.abs(warped.astype(np.int16) - base.astype(np.int16)).mean())
-    blurred = motion_blur_pass(base, 1.0)
-    blur_delta = float(np.abs(blurred.astype(np.int16) - base.astype(np.int16)).mean())
-    return halo_before, halo_after, split, warp_delta, blur_delta
-
-
 def verify(path, shots, total_seconds, score_samples):
     info = subprocess.run([FFMPEG, "-hide_banner", "-i", path], capture_output=True, text=True, errors="replace").stderr
     duration = 0.0
@@ -1376,32 +1295,25 @@ def verify(path, shots, total_seconds, score_samples):
     sharp_grad = float(np.abs(np.diff(sharp_probe.astype(np.float32), axis=1)).mean())
     sharpen_ok = sharp_grad > soft_grad * 1.02
     log("sharpen unit   : gradient %.3f -> %.3f (%.2fx)" % (soft_grad, sharp_grad, sharp_grad / max(soft_grad, 1e-6)))
-    halo_before, halo_after, unit_split, warp_delta, blur_delta = fx_unit_checks()
-    log("fx unit        : bloom halo %.4f -> %.4f | rgb split %+d px | warp delta %.2f | blur delta %.2f" % (halo_before, halo_after, unit_split, warp_delta, blur_delta))
-    bloom_ok = halo_after > max(halo_before * 2.0, 0.004) and unit_split >= 8 and warp_delta > 1.0 and blur_delta > 1.0
+    mask_shots = [shot for shot in shots if shot["mask"]]
+    pan_shots = [shot for shot in shots if abs(shot["motion"][3] - shot["motion"][2]) > 0.2 or abs(shot["motion"][5] - shot["motion"][4]) > 0.2]
+    zoom_ceiling = max(shot["motion"][1] for shot in shots)
+    log("manifest       : textmask %d | pan %d | zoom ceiling %.3f | shake off" % (len(mask_shots), len(pan_shots), zoom_ceiling))
 
-    glitch_shots = [shot for shot in shots if shot["glitch"] >= 0.5]
-    measured = []
-    for shot in glitch_shots[:8]:
-        moment = shot["start"] + 0.10
-        if moment >= duration - 0.2:
+    residue = []
+    for probe_moment in (9.0, 21.0, 33.0, 47.0, 61.0, 75.0):
+        if probe_moment >= duration - 0.2:
             continue
-        frame = grab_output(path, moment)
+        frame = grab_output(path, probe_moment)
         if frame is None:
             continue
-        measured.append((round(moment, 2), channel_offset(frame[BAR_H : HEIGHT - BAR_H])))
-    splits = [value for moment, value in measured if abs(value) >= 2]
-    log("rgb split      : " + ", ".join("%.2fs=%+d" % (moment, value) for moment, value in measured))
-    log("glitch hits    : %d/%d sampled shots show channel separation" % (len(splits), len(measured)))
+        residue.append((probe_moment, channel_offset(frame[BAR_H : HEIGHT - BAR_H])))
+    splits = [value for moment, value in residue if abs(value) >= 3]
+    log("channel offset : " + ", ".join("%.0fs=%+d" % (moment, value) for moment, value in residue))
+    log("clean image    : %d/%d probes free of channel separation" % (len(residue) - len(splits), len(residue)))
+    clean_ok = len(splits) == 0
 
-    warp_shots = [shot for shot in shots if shot["warp"] > 0.2]
-    shake_shots = [shot for shot in shots if shot["shake"] > 0.2]
-    mask_shots = [shot for shot in shots if shot["mask"]]
-    blur_shots = [shot for shot in shots if shot["blur"] > 0.3]
-    pan_shots = [shot for shot in shots if abs(shot["motion"][3] - shot["motion"][2]) > 0.2 or abs(shot["motion"][5] - shot["motion"][4]) > 0.2]
-    log("manifest       : glitch %d | warp %d | shake %d | textmask %d | motionblur %d | pan %d" % (len(glitch_shots), len(warp_shots), len(shake_shots), len(mask_shots), len(blur_shots), len(pan_shots)))
-    ramp_shots = [shot for shot in shots if shot["kind"] == "video" and abs(shot["speed"][1] - shot["speed"][0]) >= 1.5]
-    log("speed ramps    : %d shots with ratio >= 1.5x | max %.2fx" % (len(ramp_shots), max([max(shot["speed"][0], shot["speed"][1]) / max(1e-6, min(shot["speed"][0], shot["speed"][1])) for shot in shots if shot["kind"] == "video"] + [1.0])))
+    zoom_ok = zoom_ceiling <= 1.10 + 1e-6
 
     offsets = [abs(shot["start"] / BEAT - round(shot["start"] / BEAT)) for shot in shots[1:]]
     grid_ok = max(offsets) < 1e-6 if offsets else False
@@ -1463,14 +1375,11 @@ def verify(path, shots, total_seconds, score_samples):
         "decode": len(problems) == 0 and abs(decoded - expected) <= max(3, expected * 0.01),
         "letterbox": letterbox_ok,
         "grade": grade_ok,
-        "bloom": bloom_ok,
-        "rgb_split": len(splits) >= 3,
+        "clean_image": clean_ok,
         "text_mask": len(mask_shots) >= 1,
         "pan_scan": len(pan_shots) >= 10,
-        "shake": len(shake_shots) >= 8,
+        "zoom_ceiling": zoom_ok,
         "sharpen": sharpen_ok,
-        "motion_blur": len(blur_shots) >= 4,
-        "drop": drop_ok,
         "beat_grid": grid_ok,
         "cut_sync": sync >= 0.8,
         "audio": values.get("max", -99.0) < -0.5,
