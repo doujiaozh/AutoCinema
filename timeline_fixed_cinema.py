@@ -724,39 +724,89 @@ def finish_pass(frame, index, grain_scale):
     return cv2.multiply(frame, VIGNETTE, scale=1.0 / 255.0)
 
 
-def crop_window(source_w, source_h, scale, center_x, center_y):
-    window_w = min(source_w / scale, source_h * RATIO)
-    window_h = window_w / RATIO
-    if window_h > source_h:
-        window_h = source_h
-        window_w = window_h * RATIO
-    left = min(max(center_x * source_w - window_w / 2.0, 0.0), max(0.0, source_w - window_w))
-    top = min(max(center_y * source_h - window_h / 2.0, 0.0), max(0.0, source_h - window_h))
-    return left, top, window_w, window_h
+def fit_scale(source_w, source_h):
+    return min(WIDTH / float(source_w), CONTENT_H / float(source_h))
 
 
-def crop_rgb(source, scale, center_x, center_y):
+def cover_scale(source_w, source_h):
+    return max(WIDTH / float(source_w), CONTENT_H / float(source_h))
+
+
+def fit_panel(source, scale):
     height, width = source.shape[:2]
-    left, top, window_w, window_h = crop_window(width, height, scale, center_x, center_y)
-    x0 = int(round(left))
-    y0 = int(round(top))
-    x1 = min(width, max(x0 + 2, int(round(left + window_w))))
-    y1 = min(height, max(y0 + 2, int(round(top + window_h))))
-    patch = source[y0:y1, x0:x1]
-    interpolation = cv2.INTER_AREA if patch.shape[1] >= WIDTH else cv2.INTER_LINEAR
-    return cv2.resize(patch, (WIDTH, CONTENT_H), interpolation=interpolation)
+    base = fit_scale(width, height) * scale
+    target_w = max(2, int(round(width * base)))
+    target_h = max(2, int(round(height * base)))
+    interpolation = cv2.INTER_AREA if target_w < width else cv2.INTER_CUBIC
+    return cv2.resize(source, (target_w, target_h), interpolation=interpolation)
 
 
-def crop_mask(source, scale, center_x, center_y):
-    height, width = source.shape[:2]
-    left, top, window_w, window_h = crop_window(width, height, scale, center_x, center_y)
-    x0 = int(round(left))
-    y0 = int(round(top))
-    x1 = min(width, max(x0 + 2, int(round(left + window_w))))
-    y1 = min(height, max(y0 + 2, int(round(top + window_h))))
-    patch = source[y0:y1, x0:x1]
-    interpolation = cv2.INTER_AREA if patch.shape[1] >= WIDTH else cv2.INTER_LINEAR
-    return cv2.resize(patch, (WIDTH, CONTENT_H), interpolation=interpolation)
+def blur_sheet(source):
+    filled = cover_scale(source.shape[1], source.shape[0])
+    canvas_w = max(WIDTH, int(round(source.shape[1] * filled)))
+    canvas_h = max(CONTENT_H, int(round(source.shape[0] * filled)))
+    resized = cv2.resize(source, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
+    left = (canvas_w - WIDTH) // 2
+    top = (canvas_h - CONTENT_H) // 2
+    patch = resized[top : top + CONTENT_H, left : left + WIDTH]
+    patch = cv2.resize(patch, (WIDTH // 5, CONTENT_H // 5), interpolation=cv2.INTER_AREA)
+    patch = cv2.GaussianBlur(patch, (0, 0), 7.0)
+    patch = cv2.resize(patch, (WIDTH, CONTENT_H), interpolation=cv2.INTER_LINEAR)
+    return cv2.convertScaleAbs(patch, alpha=0.52, beta=-6)
+
+
+def vignette_panel(panel, fade):
+    height, width = panel.shape[:2]
+    if fade <= 0.0:
+        return panel
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    dx = np.minimum(xx + 1.0, width - xx) / max(1.0, width * 0.5)
+    dy = np.minimum(yy + 1.0, height - yy) / max(1.0, height * 0.5)
+    edge = np.clip(np.minimum(dx, dy) / 0.10, 0.0, 1.0)
+    weight = 1.0 - fade * (1.0 - edge)
+    if panel.ndim == 3:
+        weight = weight[:, :, None]
+    return (panel.astype(np.float32) * weight).astype(np.uint8)
+
+
+def compose_panel(background, panel, shadow):
+    canvas = background.copy()
+    height, width = panel.shape[:2]
+    left = (WIDTH - width) // 2
+    top = (CONTENT_H - height) // 2
+    x0 = max(0, left)
+    y0 = max(0, top)
+    x1 = min(WIDTH, left + width)
+    y1 = min(CONTENT_H, top + height)
+    if x1 <= x0 or y1 <= y0:
+        return canvas
+    patch = panel[y0 - top : y1 - top, x0 - left : x1 - left]
+    if shadow:
+        pad = 14
+        mask = np.zeros((CONTENT_H, WIDTH), dtype=np.float32)
+        mask[y0:y1, x0:x1] = 1.0
+        spread = cv2.GaussianBlur(mask, (0, 0), pad)
+        edge = np.clip(spread * 1.9, 0.0, 1.0) - np.clip(mask, 0.0, 1.0)
+        canvas = np.clip(canvas.astype(np.float32) * (1.0 - 0.55 * edge[:, :, None]), 0, 255).astype(np.uint8)
+    canvas[y0:y1, x0:x1] = patch
+    return canvas
+
+
+def motion_envelope(scale, center_x, center_y, source_w, source_h):
+    base = fit_scale(source_w, source_h)
+    margin_x = max(0.0, min(0.5, (WIDTH / (base * scale * source_w) - 1.0) / 2.0))
+    margin_y = max(0.0, min(0.5, (CONTENT_H / (base * scale * source_h) - 1.0) / 2.0))
+    low_x = margin_x + 0.04
+    high_x = 1.0 - margin_x - 0.04
+    low_y = margin_y + 0.06
+    high_y = 1.0 - margin_y - 0.06
+    if low_x >= high_x:
+        low_x = high_x = 0.5
+    if low_y >= high_y:
+        low_y = high_y = 0.5
+    clamped_x = min(max(center_x, low_x), high_x)
+    clamped_y = min(max(center_y, low_y), high_y)
+    return clamped_x, clamped_y, high_x - low_x, high_y - low_y
 
 
 def prepare_hero(path):
@@ -764,19 +814,17 @@ def prepare_hero(path):
     if image is None:
         return None
     height, width = image.shape[:2]
-    scale = max(HERO_W / float(width), HERO_H / float(height))
-    resized = cv2.resize(image, (max(HERO_W, int(round(width * scale))), max(HERO_H, int(round(height * scale)))), interpolation=cv2.INTER_AREA)
-    h2, w2 = resized.shape[:2]
-    left = (w2 - HERO_W) // 2
-    top = (h2 - HERO_H) // 2
-    base = resized[top : top + HERO_H, left : left + HERO_W]
-    gray = cv2.cvtColor(base, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    base = fit_scale(width, height)
+    target_w = max(2, int(round(width * base)))
+    target_h = max(2, int(round(height * base)))
+    resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(resized, cv2.COLOR_RGB2GRAY).astype(np.float32)
     blur = cv2.GaussianBlur(gray, (0, 0), 9.0)
     detail = np.abs(gray - blur)
     detail = detail / (float(detail.max()) + 1e-6)
-    yy, xx = np.mgrid[0:HERO_H, 0:HERO_W]
-    nx = (xx - HERO_W * 0.5) / (HERO_W * 0.5)
-    ny = (yy - HERO_H * 0.46) / (HERO_H * 0.55)
+    yy, xx = np.mgrid[0:target_h, 0:target_w]
+    nx = (xx - target_w * 0.5) / (target_w * 0.5)
+    ny = (yy - target_h * 0.46) / (target_h * 0.55)
     prior = np.exp(-(nx * nx * 1.05 + ny * ny * 1.25))
     saliency = cv2.GaussianBlur(detail * 0.7 + prior * 0.6, (0, 0), 6.0)
     saliency = (saliency - saliency.min()) / (float(saliency.max() - saliency.min()) + 1e-6)
@@ -784,13 +832,85 @@ def prepare_hero(path):
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((11, 11), np.uint8))
     mask = cv2.GaussianBlur(mask, (0, 0), 7.0)
     alpha = np.ascontiguousarray(mask.astype(np.float32) / 255.0)
-    subject = base
-    midpoint = cv2.resize(base, (HERO_W // 4, HERO_H // 4), interpolation=cv2.INTER_AREA)
-    midpoint = cv2.GaussianBlur(midpoint, (0, 0), 6.0)
-    backdrop = cv2.resize(midpoint, (HERO_W, HERO_H), interpolation=cv2.INTER_LINEAR)
-    a3 = np.repeat(alpha[:, :, None], 3, axis=2)
-    background = np.clip(base.astype(np.float32) * (1.0 - a3) + backdrop.astype(np.float32) * a3, 0, 255).astype(np.uint8)
-    return {"subject": subject, "background": background, "alpha": alpha}
+    return {"subject": resized, "alpha": alpha, "width": target_w, "height": target_h}
+
+
+def panel_ratio(motion_scale, s0, s1):
+    low = min(s0, s1)
+    high = max(s0, s1)
+    if high - low < 1e-6:
+        return 0.5
+    return min(1.0, max(0.0, (motion_scale - low) / (high - low)))
+
+
+def render_fit_image(image, motion_scale, s0, s1, center_x, center_y):
+    height, width = image.shape[:2]
+    ratio = panel_ratio(motion_scale, s0, s1)
+    panel_scale = 0.90 + 0.10 * ratio
+    background_zoom = 1.10 + 0.24 * ratio
+    panel = fit_panel(image, panel_scale)
+    backdrop = blur_sheet(image)
+    target_w = max(WIDTH, int(round(WIDTH * background_zoom)))
+    target_h = max(CONTENT_H, int(round(CONTENT_H * background_zoom)))
+    backdrop = cv2.resize(backdrop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    drift_x = int(round((center_x - 0.5) * (target_w - WIDTH) * 0.85))
+    drift_y = int(round((center_y - 0.5) * (target_h - CONTENT_H) * 0.85))
+    x0 = min(max(0, (target_w - WIDTH) // 2 + drift_x), target_w - WIDTH)
+    y0 = min(max(0, (target_h - CONTENT_H) // 2 + drift_y), target_h - CONTENT_H)
+    canvas = np.ascontiguousarray(backdrop[y0 : y0 + CONTENT_H, x0 : x0 + WIDTH])
+    return compose_panel(canvas, panel, True)
+
+
+def render_hero(hero, motion_scale, s0, s1, center_x, center_y):
+    ratio = panel_ratio(motion_scale, s0, s1)
+    panel_scale = 0.90 + 0.10 * ratio
+    panel = fit_panel(hero["subject"], panel_scale)
+    panel_alpha = cv2.resize(hero["alpha"], (panel.shape[1], panel.shape[0]), interpolation=cv2.INTER_LINEAR)
+    background_zoom = 1.08 + 0.18 * ratio
+    backdrop = blur_sheet(hero["subject"])
+    target_w = max(WIDTH, int(round(WIDTH * background_zoom)))
+    target_h = max(CONTENT_H, int(round(CONTENT_H * background_zoom)))
+    backdrop = cv2.resize(backdrop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    drift_x = int(round((center_x - 0.5) * (target_w - WIDTH) * 0.60))
+    drift_y = int(round((center_y - 0.5) * (target_h - CONTENT_H) * 0.60))
+    x0 = min(max(0, (target_w - WIDTH) // 2 + drift_x), target_w - WIDTH)
+    y0 = min(max(0, (target_h - CONTENT_H) // 2 + drift_y), target_h - CONTENT_H)
+    canvas = np.ascontiguousarray(backdrop[y0 : y0 + CONTENT_H, x0 : x0 + WIDTH])
+    subject_shift_x = int(round((center_x - 0.5) * 18.0))
+    subject_shift_y = int(round((center_y - 0.5) * 12.0))
+    height_panel, width_panel = panel.shape[:2]
+    left = (WIDTH - width_panel) // 2 + subject_shift_x
+    top = (CONTENT_H - height_panel) // 2 + subject_shift_y
+    x0 = max(0, left)
+    y0 = max(0, top)
+    x1 = min(WIDTH, left + width_panel)
+    y1 = min(CONTENT_H, top + height_panel)
+    if x1 <= x0 or y1 <= y0:
+        return canvas
+    patch = panel[y0 - top : y1 - top, x0 - left : x1 - left]
+    patch_alpha = panel_alpha[y0 - top : y1 - top, x0 - left : x1 - left]
+    region = canvas[y0:y1, x0:x1]
+    blended = region.astype(np.float32) * (1.0 - patch_alpha[:, :, None]) + patch.astype(np.float32) * patch_alpha[:, :, None]
+    canvas[y0:y1, x0:x1] = np.clip(blended, 0, 255).astype(np.uint8)
+    return canvas
+
+
+def render_cover_frame(source, scale, center_x, center_y):
+    height, width = source.shape[:2]
+    base = cover_scale(width, height) * scale
+    window_w = width * base
+    window_h = height * base
+    left = min(max(center_x * window_w - WIDTH / 2.0, 0.0), max(0.0, window_w - WIDTH))
+    top = min(max(center_y * window_h - CONTENT_H / 2.0, 0.0), max(0.0, window_h - CONTENT_H))
+    resized = cv2.resize(source, (max(2, int(round(window_w))), max(2, int(round(window_h)))), interpolation=cv2.INTER_AREA)
+    x0 = int(round(left))
+    y0 = int(round(top))
+    x1 = min(resized.shape[1], x0 + WIDTH)
+    y1 = min(resized.shape[0], y0 + CONTENT_H)
+    x0 = max(0, x1 - WIDTH)
+    y0 = max(0, y1 - CONTENT_H)
+    patch = resized[y0:y1, x0:x1]
+    return cv2.resize(patch, (WIDTH, CONTENT_H), interpolation=cv2.INTER_LINEAR)
 
 
 HERO_CACHE = {}
@@ -848,12 +968,12 @@ def video_frame(path, moment):
 
 
 MOTION_POOL = [
-    (1.02, 1.24, 0.50, 0.50, 0.47, 0.47),
-    (1.24, 1.02, 0.50, 0.50, 0.47, 0.47),
-    (1.14, 1.14, 0.57, 0.43, 0.47, 0.47),
-    (1.14, 1.14, 0.43, 0.57, 0.47, 0.47),
-    (1.04, 1.30, 0.45, 0.55, 0.56, 0.42),
-    (1.30, 1.04, 0.55, 0.45, 0.42, 0.56),
+    (1.00, 1.10, 0.50, 0.50, 0.50, 0.50),
+    (1.10, 1.00, 0.50, 0.50, 0.50, 0.50),
+    (1.04, 1.04, 0.53, 0.47, 0.50, 0.50),
+    (1.04, 1.04, 0.47, 0.53, 0.50, 0.50),
+    (1.00, 1.09, 0.48, 0.52, 0.52, 0.48),
+    (1.09, 1.00, 0.52, 0.48, 0.48, 0.52),
 ]
 
 SPEEDS = [
@@ -963,28 +1083,21 @@ def speed_offset(shot, local):
 def render_shot(shot, local):
     progress = min(1.0, max(0.0, local / shot["duration"]))
     motion = shot["motion"]
-    scale = motion[0] + (motion[1] - motion[0]) * progress
+    s0, s1 = motion[0], motion[1]
+    scale = s0 + (s1 - s0) * progress
     center_x = motion[2] + (motion[3] - motion[2]) * progress
     center_y = motion[4] + (motion[5] - motion[4]) * progress
-    if shot["hero"]:
-        layers = load_hero(shot["path"])
-        if layers is not None:
-            background_scale = 1.0 + (scale - 1.0) * 0.35
-            subject_scale = scale * 1.06
-            back = crop_rgb(layers["background"], background_scale, center_x, center_y)
-            front = crop_rgb(layers["subject"], subject_scale, center_x, center_y)
-            mask = crop_mask(layers["alpha"], subject_scale, center_x, center_y)
-            mask_u8 = (mask * 255.0).astype(np.uint8)
-            mask_rgb = cv2.cvtColor(mask_u8, cv2.COLOR_GRAY2RGB)
-            inverse_rgb = cv2.bitwise_not(mask_rgb)
-            weighted_back = cv2.multiply(back, inverse_rgb, scale=1.0 / 255.0)
-            weighted_front = cv2.multiply(front, mask_rgb, scale=1.0 / 255.0)
-            return cv2.add(weighted_back, weighted_front)
     if shot["kind"] == "image":
-        source = load_image(shot["path"])
-    else:
-        source = video_frame(shot["path"], shot["src_start"] + speed_offset(shot, local))
-    return crop_rgb(source, scale, center_x, center_y)
+        image = load_image(shot["path"])
+        if image is None:
+            raise RuntimeError("unreadable image")
+        if shot["hero"]:
+            hero = load_hero(shot["path"])
+            if hero is not None:
+                return render_hero(hero, scale, s0, s1, center_x, center_y)
+        return render_fit_image(image, scale, s0, s1, center_x, center_y)
+    source = video_frame(shot["path"], shot["src_start"] + speed_offset(shot, local))
+    return render_cover_frame(source, scale, center_x, center_y)
 
 
 def build_clip(shots, total_seconds):
