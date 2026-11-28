@@ -1,6 +1,7 @@
 __pycache__/
 _render/
 _epic/
+_timeline_fixed/
 *.mp4
 *.log
 *.err
@@ -10,3 +11,8 @@ _render_probe.py
 _audio_*.py
 _enc_check.py
 _manifest.json
+_perf*.py
+_block_*.txt
+_splice.py
+_move.py
+_check.log
