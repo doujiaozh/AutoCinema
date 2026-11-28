@@ -317,19 +317,20 @@ def pick_sequence(group, count):
     return [group[min(len(group) - 1, int(round(index * step)))] for index in range(count)]
 def build_lut():
     x = np.arange(256, dtype=np.float64) / 255.0
-    y = 0.5 + (x - 0.5) * 1.28
-    y = np.clip(y, 0.0, 1.0) * 0.96
-    y = y + 0.010 * (1.0 - y) * (1.0 - y)
-    knee = 0.78
+    y = 0.5 + (x - 0.5) * 1.62
+    y = np.clip(y, 0.0, 1.0)
+    y = np.power(y, 1.18)
+    y = y + 0.012 * (1.0 - y) * (1.0 - y)
+    knee = 0.72
     over = np.maximum(y - knee, 0.0)
-    y = np.where(y > knee, knee + over / (1.0 + 2.8 * over), y)
+    y = np.where(y > knee, knee + over / (1.0 + 1.35 * over), y)
     base = np.clip(y, 0.0, 1.0) * 255.0
     shade = (1.0 - x) ** 2
     light = x ** 2
     table = np.zeros((256, 1, 3), dtype=np.uint8)
-    table[:, 0, 0] = np.clip(base - 12.0 * shade + 20.0 * light + 5.0, 0, 255)
-    table[:, 0, 1] = np.clip(base + 3.0 * shade + 6.0 * light + 1.0, 0, 255)
-    table[:, 0, 2] = np.clip(base + 14.0 * shade - 18.0 * light - 4.0, 0, 255)
+    table[:, 0, 0] = np.clip(base - 22.0 * shade + 30.0 * light - 6.0, 0, 255)
+    table[:, 0, 1] = np.clip(base - 4.0 * shade + 8.0 * light - 4.0, 0, 255)
+    table[:, 0, 2] = np.clip(base + 26.0 * shade - 12.0 * light + 6.0, 0, 255)
     return table
 
 
@@ -347,7 +348,7 @@ def build_grain():
     rng = np.random.RandomState(20261128)
     plates = []
     for index in range(GRAIN_PLATES):
-        noise = rng.normal(128.0, 17.0, (CONTENT_H, WIDTH, 3))
+        noise = rng.normal(128.0, 26.0, (CONTENT_H, WIDTH, 3))
         plates.append(np.clip(noise, 0, 255).astype(np.uint8))
     return plates
 
@@ -442,53 +443,53 @@ CHAPTER_SPECS = [
         "name": "PROLOGUE",
         "cn": "序章",
         "en": "PROLOGUE",
-        "total": 24,
-        "shots": 4,
-        "first": 8,
-        "last": 5,
-        "mode": "parallax",
-        "glitch": 0.15,
+        "total": 14,
+        "shots": 3,
+        "first": 6,
+        "last": 4,
+        "mode": "pan",
+        "glitch": 0.20,
         "ramp": False,
-        "energy": 0.35,
+        "energy": 0.40,
     },
     {
         "name": "ARENA",
         "cn": "竞技",
         "en": "ARENA",
-        "total": 52,
-        "shots": 16,
-        "first": 5,
-        "last": 3,
-        "mode": "parallax",
-        "glitch": 0.45,
-        "ramp": False,
-        "energy": 0.8,
+        "total": 34,
+        "shots": 12,
+        "first": 4,
+        "last": 2,
+        "mode": "pan",
+        "glitch": 0.55,
+        "ramp": True,
+        "energy": 0.85,
     },
     {
         "name": "CLIMAX",
         "cn": "高潮",
         "en": "CLIMAX",
-        "total": 60,
-        "shots": 20,
-        "first": 3,
-        "last": 3,
+        "total": 72,
+        "shots": 26,
+        "first": 4,
+        "last": 2,
         "mode": "rush",
-        "glitch": 0.95,
+        "glitch": 1.00,
         "ramp": True,
-        "energy": 1.0,
+        "energy": 1.00,
     },
     {
         "name": "CODA",
         "cn": "尾声",
         "en": "CODA",
-        "total": 44,
-        "shots": 11,
+        "total": 60,
+        "shots": 14,
         "first": 6,
-        "last": 4,
-        "mode": "parallax",
-        "glitch": 0.3,
+        "last": 3,
+        "mode": "pan",
+        "glitch": 0.35,
         "ramp": False,
-        "energy": 0.62,
+        "energy": 0.65,
     },
 ]
 
@@ -534,20 +535,20 @@ def build_cards(starts):
             }
         )
 
-    add("school_cn", SCHOOL_CN, FONT_CN, 96, 0.5, 0.54, prologue + 0.40, prologue + 4.80, "rise", 0.45)
-    add("school_en", SCHOOL_EN, FONT_HEAVY, 196, 0.5, 0.38, prologue + 0.90, prologue + 4.80, "slam", 0.85)
-    add("tag1", "序章 PROLOGUE", FONT_CN, 58, 0.26, 0.74, prologue + 5.40, prologue + 7.60, "fly", 0.50)
-    add("class_cn", CLASS_CN, FONT_CN, 132, 0.5, 0.62, arena + 0.50, arena + 4.40, "slam", 1.00)
-    add("class_en", CLASS_EN, FONT_HEAVY, 236, 0.5, 0.40, arena + 0.90, arena + 4.40, "slam", 0.95)
-    add("tag2", "竞技 ARENA", FONT_CN, 58, 0.26, 0.74, arena + 5.20, arena + 7.20, "fly", 0.50)
-    add("grit", "GRIT", FONT_HEAVY, 220, 0.5, 0.44, 24.00, 26.80, "slam", 0.90)
-    add("sweat", "SWEAT", FONT_HEAVY, 220, 0.5, 0.44, 30.00, 32.80, "slam", 0.90)
-    add("tag3", "高潮 CLIMAX", FONT_CN, 58, 0.26, 0.74, climax + 0.40, climax + 2.40, "fly", 0.60)
-    add("motto", MOTTO, FONT_HEAVY, 168, 0.5, 0.46, 46.00, 49.20, "fly", 0.95)
-    add("glory", "GLORY", FONT_HEAVY, 210, 0.5, 0.44, 56.00, 58.80, "slam", 0.90)
-    add("tag4", "尾声 CODA", FONT_CN, 58, 0.26, 0.74, coda + 0.40, coda + 2.40, "fly", 0.45)
-    add("end_cn", SCHOOL_CN, FONT_CN, 84, 0.5, 0.44, 85.40, 89.20, "rise", 0.50)
-    add("end_class", CLASS_CN, FONT_CN, 60, 0.5, 0.58, 86.00, 89.20, "rise", 0.50)
+    add("school_cn", SCHOOL_CN, FONT_CN, 104, 0.5, 0.54, prologue + 0.30, prologue + 3.60, "slam", 0.55)
+    add("school_en", SCHOOL_EN, FONT_HEAVY, 210, 0.5, 0.36, prologue + 0.60, prologue + 3.60, "slam", 0.95)
+    add("tag1", "序章 PROLOGUE", FONT_CN, 62, 0.26, 0.74, prologue + 4.00, prologue + 5.60, "slam", 0.55)
+    add("class_cn", CLASS_CN, FONT_CN, 150, 0.5, 0.62, arena + 0.30, arena + 3.20, "slam", 1.05)
+    add("class_en", CLASS_EN, FONT_HEAVY, 258, 0.5, 0.38, arena + 0.60, arena + 3.20, "slam", 1.00)
+    add("tag2", "竞技 ARENA", FONT_CN, 62, 0.26, 0.74, arena + 3.80, arena + 5.40, "slam", 0.55)
+    add("grit", "GRIT", FONT_HEAVY, 250, 0.5, 0.42, 12.00, 14.20, "slam", 1.00)
+    add("sweat", "SWEAT", FONT_HEAVY, 250, 0.5, 0.42, 17.00, 19.20, "slam", 1.00)
+    add("tag3", "高潮 CLIMAX", FONT_CN, 62, 0.26, 0.74, climax + 0.30, climax + 1.90, "slam", 0.65)
+    add("motto", MOTTO, FONT_HEAVY, 190, 0.5, 0.44, 37.00, 39.60, "slam", 1.05)
+    add("glory", "GLORY", FONT_HEAVY, 240, 0.5, 0.42, 50.00, 52.40, "slam", 1.00)
+    add("tag4", "尾声 CODA", FONT_CN, 62, 0.26, 0.74, coda + 0.30, coda + 1.90, "slam", 0.50)
+    add("end_cn", SCHOOL_CN, FONT_CN, 90, 0.5, 0.44, 86.00, 89.40, "rise", 0.55)
+    add("end_class", CLASS_CN, FONT_CN, 64, 0.5, 0.58, 86.60, 89.40, "rise", 0.55)
     return cards
 CARDS = build_cards(CHAPTER_START)
 MASK_BY_KEY = {card["key"]: card for card in CARDS}
@@ -604,7 +605,7 @@ def warp_card(card, progress, mode, pulse=0.0):
     return left, top, warped_rgb, warped_alpha
 
 
-def composite_text(frame, card, progress, pulse, alpha_scale):
+def composite_text(frame, card, progress, pulse, alpha_scale, echo=0.0):
     warped = warp_card(card, progress, card["mode"], pulse)
     if warped is None or alpha_scale <= 0.01:
         return frame
@@ -614,9 +615,16 @@ def composite_text(frame, card, progress, pulse, alpha_scale):
     region = frame[top : top + height, left : left + width]
     if region.shape[:2] != mask.shape:
         return frame
+    if echo > 0.02:
+        trail = max(2, int(round(echo * 26.0)))
+        red = cv2.multiply(warped_rgb, np.array([0.35, 0.35, 1.25], dtype=np.float32))
+        cyan = cv2.multiply(warped_rgb, np.array([1.25, 0.40, 0.35], dtype=np.float32))
+        red = np.roll(red, trail, axis=1)
+        cyan = np.roll(cyan, -trail, axis=1)
+        warped_rgb = np.clip(warped_rgb.astype(np.float32) * 0.55 + red * echo * 0.55 + cyan * echo * 0.55, 0, 255).astype(np.uint8)
     mask_u8 = (mask * 255.0).astype(np.uint8)
     glow = cv2.GaussianBlur(warped_rgb, (0, 0), 6.0)
-    softened = cv2.GaussianBlur(mask_u8, (0, 0), 9.0).astype(np.float32) * (1.4 / 255.0)
+    softened = cv2.GaussianBlur(mask_u8, (0, 0), 9.0).astype(np.float32) * (1.5 / 255.0)
     soft_alpha = np.clip(softened, 0.0, 1.0)
     glow_weight = (soft_alpha * card["glow"]).astype(np.float32)
     glow_layer = (glow.astype(np.float32) * glow_weight[:, :, None]).astype(np.uint8)
@@ -635,15 +643,16 @@ def overlay_cards(frame, moment):
             continue
         span = card["end"] - card["start"]
         local = moment - card["start"]
-        progress = min(1.0, local / max(0.35, min(1.15, span * 0.55)))
+        progress = min(1.0, local / max(0.22, min(0.62, span * 0.32)))
         alpha = 1.0
-        fade = 0.28
+        fade = 0.16
         if local < fade:
             alpha = local / fade
         if span - local < fade:
             alpha = min(alpha, (span - local) / fade)
         pulse = 0.5 + 0.5 * math.sin(2.0 * math.pi * (moment / BEAT))
-        frame = composite_text(frame, card, progress, pulse, alpha)
+        echo = max(0.0, 1.0 - local / 0.28) if card["mode"] == "slam" else 0.0
+        frame = composite_text(frame, card, progress, pulse, alpha, echo)
     return frame
 
 
@@ -724,210 +733,54 @@ def finish_pass(frame, index, grain_scale):
     return cv2.multiply(frame, VIGNETTE, scale=1.0 / 255.0)
 
 
-def fit_scale(source_w, source_h):
-    return min(WIDTH / float(source_w), CONTENT_H / float(source_h))
+def pan_window(source_w, source_h, zoom, pan_x, pan_y):
+    base = max(WIDTH / float(source_w), CONTENT_H / float(source_h)) * zoom
+    window_w = WIDTH / base
+    window_h = CONTENT_H / base
+    if window_w > source_w:
+        window_w = float(source_w)
+        window_h = window_w * CONTENT_H / float(WIDTH)
+    if window_h > source_h:
+        window_h = float(source_h)
+        window_w = window_h * WIDTH / float(CONTENT_H)
+    max_x = max(0.0, source_w - window_w)
+    max_y = max(0.0, source_h - window_h)
+    left = min(max(pan_x * max_x, 0.0), max_x)
+    top = min(max(pan_y * max_y, 0.0), max_y)
+    return left, top, window_w, window_h
 
 
-def cover_scale(source_w, source_h):
-    return max(WIDTH / float(source_w), CONTENT_H / float(source_h))
-
-
-def fit_panel(source, scale):
+def render_pan_scan(source, zoom, pan_x, pan_y, sharpen=True):
     height, width = source.shape[:2]
-    base = fit_scale(width, height) * scale
-    target_w = max(2, int(round(width * base)))
-    target_h = max(2, int(round(height * base)))
-    interpolation = cv2.INTER_AREA if target_w < width else cv2.INTER_CUBIC
-    return cv2.resize(source, (target_w, target_h), interpolation=interpolation)
-
-
-def blur_sheet(source):
-    filled = cover_scale(source.shape[1], source.shape[0])
-    canvas_w = max(WIDTH, int(round(source.shape[1] * filled)))
-    canvas_h = max(CONTENT_H, int(round(source.shape[0] * filled)))
-    resized = cv2.resize(source, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
-    left = (canvas_w - WIDTH) // 2
-    top = (canvas_h - CONTENT_H) // 2
-    patch = resized[top : top + CONTENT_H, left : left + WIDTH]
-    patch = cv2.resize(patch, (WIDTH // 5, CONTENT_H // 5), interpolation=cv2.INTER_AREA)
-    patch = cv2.GaussianBlur(patch, (0, 0), 7.0)
-    patch = cv2.resize(patch, (WIDTH, CONTENT_H), interpolation=cv2.INTER_LINEAR)
-    return cv2.convertScaleAbs(patch, alpha=0.52, beta=-6)
-
-
-def vignette_panel(panel, fade):
-    height, width = panel.shape[:2]
-    if fade <= 0.0:
-        return panel
-    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
-    dx = np.minimum(xx + 1.0, width - xx) / max(1.0, width * 0.5)
-    dy = np.minimum(yy + 1.0, height - yy) / max(1.0, height * 0.5)
-    edge = np.clip(np.minimum(dx, dy) / 0.10, 0.0, 1.0)
-    weight = 1.0 - fade * (1.0 - edge)
-    if panel.ndim == 3:
-        weight = weight[:, :, None]
-    return (panel.astype(np.float32) * weight).astype(np.uint8)
-
-
-def compose_panel(background, panel, shadow):
-    canvas = background.copy()
-    height, width = panel.shape[:2]
-    left = (WIDTH - width) // 2
-    top = (CONTENT_H - height) // 2
-    x0 = max(0, left)
-    y0 = max(0, top)
-    x1 = min(WIDTH, left + width)
-    y1 = min(CONTENT_H, top + height)
-    if x1 <= x0 or y1 <= y0:
-        return canvas
-    patch = panel[y0 - top : y1 - top, x0 - left : x1 - left]
-    if shadow:
-        pad = 14
-        mask = np.zeros((CONTENT_H, WIDTH), dtype=np.float32)
-        mask[y0:y1, x0:x1] = 1.0
-        spread = cv2.GaussianBlur(mask, (0, 0), pad)
-        edge = np.clip(spread * 1.9, 0.0, 1.0) - np.clip(mask, 0.0, 1.0)
-        canvas = np.clip(canvas.astype(np.float32) * (1.0 - 0.55 * edge[:, :, None]), 0, 255).astype(np.uint8)
-    canvas[y0:y1, x0:x1] = patch
-    return canvas
-
-
-def motion_envelope(scale, center_x, center_y, source_w, source_h):
-    base = fit_scale(source_w, source_h)
-    margin_x = max(0.0, min(0.5, (WIDTH / (base * scale * source_w) - 1.0) / 2.0))
-    margin_y = max(0.0, min(0.5, (CONTENT_H / (base * scale * source_h) - 1.0) / 2.0))
-    low_x = margin_x + 0.04
-    high_x = 1.0 - margin_x - 0.04
-    low_y = margin_y + 0.06
-    high_y = 1.0 - margin_y - 0.06
-    if low_x >= high_x:
-        low_x = high_x = 0.5
-    if low_y >= high_y:
-        low_y = high_y = 0.5
-    clamped_x = min(max(center_x, low_x), high_x)
-    clamped_y = min(max(center_y, low_y), high_y)
-    return clamped_x, clamped_y, high_x - low_x, high_y - low_y
-
-
-def prepare_hero(path):
-    image = decode_full(path)
-    if image is None:
-        return None
-    height, width = image.shape[:2]
-    base = fit_scale(width, height)
-    target_w = max(2, int(round(width * base)))
-    target_h = max(2, int(round(height * base)))
-    resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_AREA)
-    gray = cv2.cvtColor(resized, cv2.COLOR_RGB2GRAY).astype(np.float32)
-    blur = cv2.GaussianBlur(gray, (0, 0), 9.0)
-    detail = np.abs(gray - blur)
-    detail = detail / (float(detail.max()) + 1e-6)
-    yy, xx = np.mgrid[0:target_h, 0:target_w]
-    nx = (xx - target_w * 0.5) / (target_w * 0.5)
-    ny = (yy - target_h * 0.46) / (target_h * 0.55)
-    prior = np.exp(-(nx * nx * 1.05 + ny * ny * 1.25))
-    saliency = cv2.GaussianBlur(detail * 0.7 + prior * 0.6, (0, 0), 6.0)
-    saliency = (saliency - saliency.min()) / (float(saliency.max() - saliency.min()) + 1e-6)
-    mask = (saliency > np.percentile(saliency, 58)).astype(np.uint8) * 255
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((11, 11), np.uint8))
-    mask = cv2.GaussianBlur(mask, (0, 0), 7.0)
-    alpha = np.ascontiguousarray(mask.astype(np.float32) / 255.0)
-    return {"subject": resized, "alpha": alpha, "width": target_w, "height": target_h}
-
-
-def panel_ratio(motion_scale, s0, s1):
-    low = min(s0, s1)
-    high = max(s0, s1)
-    if high - low < 1e-6:
-        return 0.5
-    return min(1.0, max(0.0, (motion_scale - low) / (high - low)))
-
-
-def render_fit_image(image, motion_scale, s0, s1, center_x, center_y):
-    height, width = image.shape[:2]
-    ratio = panel_ratio(motion_scale, s0, s1)
-    panel_scale = 0.90 + 0.10 * ratio
-    background_zoom = 1.10 + 0.24 * ratio
-    panel = fit_panel(image, panel_scale)
-    backdrop = blur_sheet(image)
-    target_w = max(WIDTH, int(round(WIDTH * background_zoom)))
-    target_h = max(CONTENT_H, int(round(CONTENT_H * background_zoom)))
-    backdrop = cv2.resize(backdrop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-    drift_x = int(round((center_x - 0.5) * (target_w - WIDTH) * 0.85))
-    drift_y = int(round((center_y - 0.5) * (target_h - CONTENT_H) * 0.85))
-    x0 = min(max(0, (target_w - WIDTH) // 2 + drift_x), target_w - WIDTH)
-    y0 = min(max(0, (target_h - CONTENT_H) // 2 + drift_y), target_h - CONTENT_H)
-    canvas = np.ascontiguousarray(backdrop[y0 : y0 + CONTENT_H, x0 : x0 + WIDTH])
-    return compose_panel(canvas, panel, True)
-
-
-def render_hero(hero, motion_scale, s0, s1, center_x, center_y):
-    ratio = panel_ratio(motion_scale, s0, s1)
-    panel_scale = 0.90 + 0.10 * ratio
-    panel = fit_panel(hero["subject"], panel_scale)
-    panel_alpha = cv2.resize(hero["alpha"], (panel.shape[1], panel.shape[0]), interpolation=cv2.INTER_LINEAR)
-    background_zoom = 1.08 + 0.18 * ratio
-    backdrop = blur_sheet(hero["subject"])
-    target_w = max(WIDTH, int(round(WIDTH * background_zoom)))
-    target_h = max(CONTENT_H, int(round(CONTENT_H * background_zoom)))
-    backdrop = cv2.resize(backdrop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-    drift_x = int(round((center_x - 0.5) * (target_w - WIDTH) * 0.60))
-    drift_y = int(round((center_y - 0.5) * (target_h - CONTENT_H) * 0.60))
-    x0 = min(max(0, (target_w - WIDTH) // 2 + drift_x), target_w - WIDTH)
-    y0 = min(max(0, (target_h - CONTENT_H) // 2 + drift_y), target_h - CONTENT_H)
-    canvas = np.ascontiguousarray(backdrop[y0 : y0 + CONTENT_H, x0 : x0 + WIDTH])
-    subject_shift_x = int(round((center_x - 0.5) * 18.0))
-    subject_shift_y = int(round((center_y - 0.5) * 12.0))
-    height_panel, width_panel = panel.shape[:2]
-    left = (WIDTH - width_panel) // 2 + subject_shift_x
-    top = (CONTENT_H - height_panel) // 2 + subject_shift_y
-    x0 = max(0, left)
-    y0 = max(0, top)
-    x1 = min(WIDTH, left + width_panel)
-    y1 = min(CONTENT_H, top + height_panel)
-    if x1 <= x0 or y1 <= y0:
-        return canvas
-    patch = panel[y0 - top : y1 - top, x0 - left : x1 - left]
-    patch_alpha = panel_alpha[y0 - top : y1 - top, x0 - left : x1 - left]
-    region = canvas[y0:y1, x0:x1]
-    blended = region.astype(np.float32) * (1.0 - patch_alpha[:, :, None]) + patch.astype(np.float32) * patch_alpha[:, :, None]
-    canvas[y0:y1, x0:x1] = np.clip(blended, 0, 255).astype(np.uint8)
-    return canvas
-
-
-def render_cover_frame(source, scale, center_x, center_y):
-    height, width = source.shape[:2]
-    base = cover_scale(width, height) * scale
-    window_w = width * base
-    window_h = height * base
-    left = min(max(center_x * window_w - WIDTH / 2.0, 0.0), max(0.0, window_w - WIDTH))
-    top = min(max(center_y * window_h - CONTENT_H / 2.0, 0.0), max(0.0, window_h - CONTENT_H))
-    resized = cv2.resize(source, (max(2, int(round(window_w))), max(2, int(round(window_h)))), interpolation=cv2.INTER_AREA)
+    left, top, window_w, window_h = pan_window(width, height, zoom, pan_x, pan_y)
     x0 = int(round(left))
     y0 = int(round(top))
-    x1 = min(resized.shape[1], x0 + WIDTH)
-    y1 = min(resized.shape[0], y0 + CONTENT_H)
-    x0 = max(0, x1 - WIDTH)
-    y0 = max(0, y1 - CONTENT_H)
-    patch = resized[y0:y1, x0:x1]
-    return cv2.resize(patch, (WIDTH, CONTENT_H), interpolation=cv2.INTER_LINEAR)
+    x1 = min(width, max(x0 + 2, int(round(left + window_w))))
+    y1 = min(height, max(y0 + 2, int(round(top + window_h))))
+    patch = source[y0:y1, x0:x1]
+    interpolation = cv2.INTER_AREA if patch.shape[1] >= WIDTH else cv2.INTER_CUBIC
+    frame = cv2.resize(patch, (WIDTH, CONTENT_H), interpolation=interpolation)
+    if sharpen:
+        frame = usm_sharpen(frame)
+    return frame
 
 
-HERO_CACHE = {}
-HERO_ORDER = []
+def usm_sharpen(frame, radius=1.6, amount=0.85, threshold=2.0):
+    blurred = cv2.GaussianBlur(frame, (0, 0), radius)
+    return cv2.addWeighted(frame, 1.0 + amount, blurred, -amount, 0)
 
 
-def load_hero(path):
-    cached = HERO_CACHE.get(path)
-    if cached is not None:
-        return cached
-    layers = prepare_hero(path)
-    HERO_CACHE[path] = layers
-    HERO_ORDER.append(path)
-    while len(HERO_ORDER) > 2:
-        stale = HERO_ORDER.pop(0)
-        HERO_CACHE.pop(stale, None)
-    return layers
+def camera_shake(frame, amplitude, phase, index):
+    if amplitude <= 0.05:
+        return frame
+    rng = np.random.RandomState((int(phase * 1000) * 37 + index * 131) % (2 ** 31))
+    shift_x = int(round(rng.uniform(-1.0, 1.0) * amplitude * 18.0))
+    shift_y = int(round(rng.uniform(-1.0, 1.0) * amplitude * 13.0))
+    angle = float(rng.uniform(-1.0, 1.0) * amplitude * 1.05)
+    matrix = cv2.getRotationMatrix2D((WIDTH / 2.0, CONTENT_H / 2.0), angle, 1.0 + amplitude * 0.012)
+    matrix[0, 2] += shift_x
+    matrix[1, 2] += shift_y
+    return cv2.warpAffine(frame, matrix, (WIDTH, CONTENT_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
 
 
 IMAGE_CACHE = {}
@@ -968,21 +821,26 @@ def video_frame(path, moment):
 
 
 MOTION_POOL = [
-    (1.00, 1.10, 0.50, 0.50, 0.50, 0.50),
-    (1.10, 1.00, 0.50, 0.50, 0.50, 0.50),
-    (1.04, 1.04, 0.53, 0.47, 0.50, 0.50),
-    (1.04, 1.04, 0.47, 0.53, 0.50, 0.50),
-    (1.00, 1.09, 0.48, 0.52, 0.52, 0.48),
-    (1.09, 1.00, 0.52, 0.48, 0.48, 0.52),
+    (1.00, 1.34, 0.02, 0.98, 0.50, 0.50),
+    (1.00, 1.34, 0.98, 0.02, 0.50, 0.50),
+    (1.00, 1.30, 0.50, 0.50, 0.02, 0.98),
+    (1.00, 1.30, 0.50, 0.50, 0.98, 0.02),
+    (1.02, 1.42, 0.06, 0.94, 0.10, 0.90),
+    (1.02, 1.42, 0.94, 0.06, 0.90, 0.10),
+    (1.06, 1.52, 0.50, 0.50, 0.50, 0.50),
+    (1.00, 1.26, 0.84, 0.16, 0.50, 0.50),
 ]
 
+
 SPEEDS = [
-    (0.30, 0.30, "slowmo"),
-    (0.28, 3.40, "ramp_up"),
-    (3.00, 0.60, "ramp_down"),
+    (0.50, 0.50, "slowmo"),
+    (0.50, 5.00, "slam_up"),
+    (5.00, 0.50, "slam_down"),
     (1.00, 1.00, "real"),
-    (1.20, 4.20, "burst"),
-    (0.45, 0.45, "slow2"),
+    (0.40, 6.00, "hyper"),
+    (6.00, 0.40, "hyper_down"),
+    (0.35, 0.35, "slow2"),
+    (0.50, 3.20, "kick_out"),
 ]
 
 
@@ -1017,6 +875,7 @@ def build_timeline(groups):
                 "leak": 0.10 + 0.16 * chapter["energy"],
                 "bloom": 0.16 + 0.22 * chapter["energy"],
                 "mask": None,
+                "shake": 0.0,
             }
             if item["kind"] == "video":
                 source_span = max(1.0, float(item.get("duration") or 4.0) - 2.0)
@@ -1052,6 +911,11 @@ def build_timeline(groups):
                 shot["glitch"] = 0.45
             if order in (1, CHAPTER_SHOT_OFFSET[2], CHAPTER_SHOT_OFFSET[3]):
                 shot["warp"] = 0.55
+                shot["shake"] = 0.85
+            if beat_cursor % 16 == 0 and chapter_index > 0:
+                shot["shake"] = max(shot["shake"], 0.70)
+            if chapter["energy"] >= 1.0 and beats <= 3:
+                shot["shake"] = max(shot["shake"], 0.55)
             if order == 0:
                 shot["transition"] = "open"
             elif beat_cursor % 8 == 0:
@@ -1084,20 +948,16 @@ def render_shot(shot, local):
     progress = min(1.0, max(0.0, local / shot["duration"]))
     motion = shot["motion"]
     s0, s1 = motion[0], motion[1]
-    scale = s0 + (s1 - s0) * progress
-    center_x = motion[2] + (motion[3] - motion[2]) * progress
-    center_y = motion[4] + (motion[5] - motion[4]) * progress
+    zoom = s0 + (s1 - s0) * progress
+    pan_x = motion[2] + (motion[3] - motion[2]) * progress
+    pan_y = motion[4] + (motion[5] - motion[4]) * progress
     if shot["kind"] == "image":
-        image = load_image(shot["path"])
-        if image is None:
+        source = load_image(shot["path"])
+        if source is None:
             raise RuntimeError("unreadable image")
-        if shot["hero"]:
-            hero = load_hero(shot["path"])
-            if hero is not None:
-                return render_hero(hero, scale, s0, s1, center_x, center_y)
-        return render_fit_image(image, scale, s0, s1, center_x, center_y)
-    source = video_frame(shot["path"], shot["src_start"] + speed_offset(shot, local))
-    return render_cover_frame(source, scale, center_x, center_y)
+    else:
+        source = video_frame(shot["path"], shot["src_start"] + speed_offset(shot, local))
+    return render_pan_scan(source, zoom, pan_x, pan_y)
 
 
 def build_clip(shots, total_seconds):
@@ -1127,6 +987,9 @@ def build_clip(shots, total_seconds):
             frame = glitch_pass(frame, level * envelope, local, shot["index"])
         frame = leak_pass(frame, moment, shot["leak"])
         frame = finish_pass(frame, index, 1.0 if shot["kind"] == "video" else 0.8)
+        shake = shot["shake"] * math.exp(-local * 6.5)
+        if shake > 0.02:
+            frame = camera_shake(frame, shake, moment, index)
         if moment < 2.86:
             dim = 0.10 + 0.22 * (moment / 2.86)
             frame = cv2.convertScaleAbs(frame, alpha=dim, beta=0)
@@ -1491,6 +1354,14 @@ def verify(path, shots, total_seconds, score_samples):
         halo = float(((gray > 190.0) & (gray <= 232.0)).mean())
         log("bloom          : saturated %.4f | halo %.4f | frame spread %.1f" % (bright, halo, best_spread))
 
+    base_probe = np.full((CONTENT_H, WIDTH, 3), 60, np.uint8)
+    cv2.rectangle(base_probe, (200, 120), (900, 640), (220, 220, 220), -1)
+    soft_probe = cv2.GaussianBlur(base_probe, (0, 0), 2.4)
+    sharp_probe = usm_sharpen(soft_probe)
+    soft_grad = float(np.abs(np.diff(soft_probe.astype(np.float32), axis=1)).mean())
+    sharp_grad = float(np.abs(np.diff(sharp_probe.astype(np.float32), axis=1)).mean())
+    sharpen_ok = sharp_grad > soft_grad * 1.02
+    log("sharpen unit   : gradient %.3f -> %.3f (%.2fx)" % (soft_grad, sharp_grad, sharp_grad / max(soft_grad, 1e-6)))
     halo_before, halo_after, unit_split, warp_delta, blur_delta = fx_unit_checks()
     log("fx unit        : bloom halo %.4f -> %.4f | rgb split %+d px | warp delta %.2f | blur delta %.2f" % (halo_before, halo_after, unit_split, warp_delta, blur_delta))
     bloom_ok = halo_after > max(halo_before * 2.0, 0.004) and unit_split >= 8 and warp_delta > 1.0 and blur_delta > 1.0
@@ -1510,10 +1381,13 @@ def verify(path, shots, total_seconds, score_samples):
     log("glitch hits    : %d/%d sampled shots show channel separation" % (len(splits), len(measured)))
 
     warp_shots = [shot for shot in shots if shot["warp"] > 0.2]
-    hero_shots = [shot for shot in shots if shot["hero"]]
+    shake_shots = [shot for shot in shots if shot["shake"] > 0.2]
     mask_shots = [shot for shot in shots if shot["mask"]]
     blur_shots = [shot for shot in shots if shot["blur"] > 0.3]
-    log("manifest       : glitch %d | warp %d | hero3d %d | textmask %d | motionblur %d" % (len(glitch_shots), len(warp_shots), len(hero_shots), len(mask_shots), len(blur_shots)))
+    pan_shots = [shot for shot in shots if abs(shot["motion"][3] - shot["motion"][2]) > 0.2 or abs(shot["motion"][5] - shot["motion"][4]) > 0.2]
+    log("manifest       : glitch %d | warp %d | shake %d | textmask %d | motionblur %d | pan %d" % (len(glitch_shots), len(warp_shots), len(shake_shots), len(mask_shots), len(blur_shots), len(pan_shots)))
+    ramp_shots = [shot for shot in shots if shot["kind"] == "video" and abs(shot["speed"][1] - shot["speed"][0]) >= 1.5]
+    log("speed ramps    : %d shots with ratio >= 1.5x | max %.2fx" % (len(ramp_shots), max([max(shot["speed"][0], shot["speed"][1]) / max(1e-6, min(shot["speed"][0], shot["speed"][1])) for shot in shots if shot["kind"] == "video"] + [1.0])))
 
     offsets = [abs(shot["start"] / BEAT - round(shot["start"] / BEAT)) for shot in shots[1:]]
     grid_ok = max(offsets) < 1e-6 if offsets else False
@@ -1578,7 +1452,9 @@ def verify(path, shots, total_seconds, score_samples):
         "bloom": bloom_ok,
         "rgb_split": len(splits) >= 3,
         "text_mask": len(mask_shots) >= 1,
-        "hero_3d": len(hero_shots) >= 8,
+        "pan_scan": len(pan_shots) >= 10,
+        "shake": len(shake_shots) >= 8,
+        "sharpen": sharpen_ok,
         "motion_blur": len(blur_shots) >= 4,
         "drop": drop_ok,
         "beat_grid": grid_ok,
